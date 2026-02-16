@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-生成 index.html 归档首页
-自动扫描 twitter-archive 目录，生成归档导航页面
+生成 Twitter Archive 的 index.html 首页
+自动扫描所有归档文件，生成导航页面
 """
 
+import os
 import glob
 import json
-import os
 from datetime import datetime
+from collections import defaultdict
 
-# HTML 模板（嵌入完整的 index.html 内容，ARCHIVE_DATA 替换为 {}）
+# 配置
+ARCHIVE_DIR = "/root/clawd/twitter-archive/"
+OUTPUT_FILE = os.path.join(ARCHIVE_DIR, "index.html")
+
+# 内联 HTML 模板
 HTML_TEMPLATE = r'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -486,72 +491,78 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 </html>'''
 
 
-def scan_archive_files(archive_dir="/root/clawd/twitter-archive"):
-    """扫描归档目录，收集所有 HTML 文件"""
-    archive_data = {}
-
-    if not os.path.exists(archive_dir):
-        print(f"⚠️ 目录不存在: {archive_dir}")
-        return archive_data
-
-    for filename in os.listdir(archive_dir):
-        # 匹配: TWITTER_SUMMARY_YYYY-MM-DD_HH-MM.html
-        if filename.startswith("TWITTER_SUMMARY_") and filename.endswith(".html"):
-            try:
-                # 解析文件名
-                parts = filename.replace("TWITTER_SUMMARY_", "").replace(".html", "").split("_")
-                if len(parts) == 2:
-                    date_str, time_str = parts
-                    # 添加到数据字典
-                    if date_str not in archive_data:
-                        archive_data[date_str] = []
-                    if time_str not in archive_data[date_str]:
-                        archive_data[date_str].append(time_str)
-            except Exception as e:
-                print(f"⚠️ 解析失败: {filename} - {e}")
-
-    return archive_data
+def scan_archive_files():
+    """扫描归档目录，获取所有文件"""
+    pattern = os.path.join(ARCHIVE_DIR, "TWITTER_SUMMARY_*.html")
+    files = glob.glob(pattern)
+    # 排除 index.html
+    files = [f for f in files if "index.html" not in f]
+    return files
 
 
-def generate_index_html(archive_data, output_file="/root/clawd/twitter-archive/index.html"):
-    """生成 index.html 文件"""
+def parse_filename(filename):
+    """
+    解析文件名，提取日期和时间
+    输入: TWITTER_SUMMARY_2026-02-16_06-00.html
+    输出: ('2026-02-16', '06-00')
+    """
+    basename = os.path.basename(filename)
+    parts = basename.replace("TWITTER_SUMMARY_", "").replace(".html", "")
+    
+    if "_" in parts:
+        date, time = parts.split("_", 1)
+        return (date, time)
+    else:
+        # 旧格式（没有时间）
+        return (parts, "00-00")
 
-    # 将数据转换为 JSON
-    archive_json = json.dumps(archive_data, ensure_ascii=False, indent=4)
 
-    # 替换模板中的 ARCHIVE_DATA = {}
-    html = HTML_TEMPLATE.replace('const ARCHIVE_DATA = {};', f'const ARCHIVE_DATA = {archive_json};')
+def build_archive_data():
+    """构建归档数据结构"""
+    files = scan_archive_files()
+    archive_data = defaultdict(list)
+
+    for filepath in files:
+        date, time = parse_filename(filepath)
+        archive_data[date].append(time)
+
+    # 对每天的时间排序
+    for date in archive_data:
+        archive_data[date].sort()
+
+    return dict(archive_data)
+
+
+def generate_index_html():
+    """生成 index.html"""
+    # 获取归档数据
+    archive_data = build_archive_data()
+
+    # 转换为 JavaScript 对象字符串
+    archive_data_js = json.dumps(archive_data, ensure_ascii=False, indent=12)
+
+    # 替换数据占位符
+    html_content = HTML_TEMPLATE.replace(
+        "const ARCHIVE_DATA = {};",
+        f"const ARCHIVE_DATA = {archive_data_js};"
+    )
 
     # 写入文件
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(html)
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write(html_content)
 
-    return output_file
+    print(f"✅ index.html 已生成: {OUTPUT_FILE}")
+    print(f"📊 统计:")
+    print(f"   - 归档天数: {len(archive_data)}")
+    print(f"   - 总推送数: {sum(len(times) for times in archive_data.values())}")
+
+    return OUTPUT_FILE
 
 
 def main():
     """主函数"""
     print("🚀 开始生成 index.html...")
-
-    # 扫描归档文件
-    archive_dir = "/root/clawd/twitter-archive"
-    archive_data = scan_archive_files(archive_dir)
-
-    if not archive_data:
-        print("⚠️ 未找到任何归档文件")
-        return
-
-    # 生成 HTML
-    output_file = generate_index_html(archive_data, os.path.join(archive_dir, "index.html"))
-
-    # 统计
-    total_days = len(archive_data)
-    total_summaries = sum(len(times) for times in archive_data.values())
-
-    print(f"✅ index.html 已生成: {output_file}")
-    print(f"📊 统计:")
-    print(f"   - 归档天数: {total_days}")
-    print(f"   - 总推送数: {total_summaries}")
+    generate_index_html()
 
 
 if __name__ == "__main__":
