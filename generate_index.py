@@ -1,0 +1,558 @@
+#!/usr/bin/env python3
+"""
+生成 index.html 归档首页
+自动扫描 twitter-archive 目录，生成归档导航页面
+"""
+
+import glob
+import json
+import os
+from datetime import datetime
+
+# HTML 模板（嵌入完整的 index.html 内容，ARCHIVE_DATA 替换为 {}）
+HTML_TEMPLATE = r'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐦 Twitter 推文摘要归档</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* 头部 */
+        header {
+            text-align: center;
+            padding: 40px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        header p {
+            color: #a0a0a0;
+            font-size: 1.1em;
+        }
+
+        /* 统计信息 */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-card .label {
+            color: #a0a0a0;
+            margin-top: 5px;
+        }
+
+        /* 搜索框 */
+        .search-box {
+            margin-bottom: 30px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 15px 20px;
+            font-size: 1em;
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e0e0e0;
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .search-box input::placeholder {
+            color: #666;
+        }
+
+        /* 日期卡片 */
+        .date-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .date-card:hover {
+            border-color: rgba(102, 126, 234, 0.5);
+        }
+
+        .date-header {
+            padding: 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.03);
+            transition: background 0.3s ease;
+        }
+
+        .date-header:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .date-title {
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+
+        .date-title .weekday {
+            color: #667eea;
+            margin-left: 10px;
+            font-size: 0.9em;
+        }
+
+        .date-count {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .arrow {
+            transition: transform 0.3s ease;
+            font-size: 1.2em;
+            color: #667eea;
+        }
+
+        .date-card.active .arrow {
+            transform: rotate(180deg);
+        }
+
+        /* 时间链接 */
+        .time-links {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .date-card.active .time-links {
+            max-height: 300px;
+        }
+
+        .time-links-inner {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .time-link {
+            display: block;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.1);
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            border-radius: 10px;
+            text-align: center;
+            text-decoration: none;
+            color: #e0e0e0;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .time-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.3), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .time-link:hover::before {
+            left: 100%;
+        }
+
+        .time-link:hover {
+            background: rgba(102, 126, 234, 0.2);
+            border-color: #667eea;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .time-emoji {
+            font-size: 1.5em;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .time-text {
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state .icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        /* 页脚 */
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            margin-top: 50px;
+        }
+
+        footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2em;
+            }
+
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .time-links-inner {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid rgba(102, 126, 234, 0.2);
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🐦 Twitter 推文摘要归档</h1>
+            <p>每日精选推文，自动整理归档</p>
+        </header>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="number" id="total-days">0</div>
+                <div class="label">📅 归档天数</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="total-summaries">0</div>
+                <div class="label">📝 总推送数</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="latest-date">--</div>
+                <div class="label">🕐 最新更新</div>
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="🔍 搜索日期... (例如: 2026-02-16)">
+        </div>
+
+        <div class="loading active">
+            <div class="spinner"></div>
+            <p style="margin-top: 20px; color: #666;">加载中...</p>
+        </div>
+
+        <div id="date-list"></div>
+
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <div class="icon">📭</div>
+            <h3>暂无归档数据</h3>
+            <p>等待第一次推送...</p>
+        </div>
+
+        <footer>
+            <p>自动化由 <a href="https://github.com/fengzhao2021/twitter-archive" target="_blank">GitHub Actions</a> 驱动</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">每6小时自动更新 | 数据来源: Twitter</p>
+        </footer>
+    </div>
+
+    <script>
+        const TIME_SLOTS = {
+            '00-00': { emoji: '🌙', label: '凌晨' },
+            '06-00': { emoji: '🌅', label: '早晨' },
+            '12-00': { emoji: '☀️', label: '中午' },
+            '18-00': { emoji: '🌆', label: '傍晚' }
+        };
+
+        const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+        // 数据由服务器动态生成
+        const ARCHIVE_DATA = {};
+
+        function initPage() {
+            const dateList = document.getElementById('date-list');
+            const loading = document.querySelector('.loading');
+            const emptyState = document.getElementById('empty-state');
+
+            setTimeout(() => {
+                loading.classList.remove('active');
+
+                if (Object.keys(ARCHIVE_DATA).length === 0) {
+                    emptyState.style.display = 'block';
+                    return;
+                }
+
+                updateStats();
+
+                const sortedDates = Object.keys(ARCHIVE_DATA).sort().reverse();
+
+                sortedDates.forEach(date => {
+                    const card = createDateCard(date, ARCHIVE_DATA[date]);
+                    dateList.appendChild(card);
+                });
+
+                const firstCard = dateList.querySelector('.date-card');
+                if (firstCard) {
+                    firstCard.classList.add('active');
+                }
+            }, 500);
+        }
+
+        function createDateCard(date, times) {
+            const card = document.createElement('div');
+            card.className = 'date-card';
+            card.dataset.date = date;
+
+            const dateObj = new Date(date);
+            const weekday = WEEKDAYS[dateObj.getDay()];
+
+            const header = document.createElement('div');
+            header.className = 'date-header';
+            header.innerHTML = `
+                <div class="date-title">
+                    📅 ${date}
+                    <span class="weekday">${weekday}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span class="date-count">${times.length} 篇</span>
+                    <span class="arrow">▼</span>
+                </div>
+            `;
+
+            header.addEventListener('click', () => {
+                card.classList.toggle('active');
+            });
+
+            const timeLinks = document.createElement('div');
+            timeLinks.className = 'time-links';
+
+            const timeLinksInner = document.createElement('div');
+            timeLinksInner.className = 'time-links-inner';
+
+            times.forEach(time => {
+                const link = createTimeLink(date, time);
+                timeLinksInner.appendChild(link);
+            });
+
+            timeLinks.appendChild(timeLinksInner);
+
+            card.appendChild(header);
+            card.appendChild(timeLinks);
+
+            return card;
+        }
+
+        function createTimeLink(date, time) {
+            const slot = TIME_SLOTS[time] || { emoji: '🕐', label: time };
+            const link = document.createElement('a');
+            link.className = 'time-link';
+            link.href = `TWITTER_SUMMARY_${date}_${time}.html`;
+            link.innerHTML = `
+                <span class="time-emoji">${slot.emoji}</span>
+                <span class="time-text">${time.replace('-', ':')} ${slot.label}</span>
+            `;
+            return link;
+        }
+
+        function updateStats() {
+            const dates = Object.keys(ARCHIVE_DATA);
+            const totalDays = dates.length;
+            const totalSummaries = Object.values(ARCHIVE_DATA).reduce((sum, times) => sum + times.length, 0);
+            const latestDate = dates.sort().reverse()[0];
+
+            document.getElementById('total-days').textContent = totalDays;
+            document.getElementById('total-summaries').textContent = totalSummaries;
+            document.getElementById('latest-date').textContent = latestDate.substring(5);
+        }
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const cards = document.querySelectorAll('.date-card');
+
+            cards.forEach(card => {
+                const date = card.dataset.date.toLowerCase();
+                card.style.display = date.includes(query) ? 'block' : 'none';
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html>'''
+
+
+def scan_archive_files(archive_dir="/root/clawd/twitter-archive"):
+    """扫描归档目录，收集所有 HTML 文件"""
+    archive_data = {}
+
+    if not os.path.exists(archive_dir):
+        print(f"⚠️ 目录不存在: {archive_dir}")
+        return archive_data
+
+    for filename in os.listdir(archive_dir):
+        # 匹配: TWITTER_SUMMARY_YYYY-MM-DD_HH-MM.html
+        if filename.startswith("TWITTER_SUMMARY_") and filename.endswith(".html"):
+            try:
+                # 解析文件名
+                parts = filename.replace("TWITTER_SUMMARY_", "").replace(".html", "").split("_")
+                if len(parts) == 2:
+                    date_str, time_str = parts
+                    # 添加到数据字典
+                    if date_str not in archive_data:
+                        archive_data[date_str] = []
+                    if time_str not in archive_data[date_str]:
+                        archive_data[date_str].append(time_str)
+            except Exception as e:
+                print(f"⚠️ 解析失败: {filename} - {e}")
+
+    return archive_data
+
+
+def generate_index_html(archive_data, output_file="/root/clawd/twitter-archive/index.html"):
+    """生成 index.html 文件"""
+
+    # 将数据转换为 JSON
+    archive_json = json.dumps(archive_data, ensure_ascii=False, indent=4)
+
+    # 替换模板中的 ARCHIVE_DATA = {}
+    html = HTML_TEMPLATE.replace('const ARCHIVE_DATA = {};', f'const ARCHIVE_DATA = {archive_json};')
+
+    # 写入文件
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    return output_file
+
+
+def main():
+    """主函数"""
+    print("🚀 开始生成 index.html...")
+
+    # 扫描归档文件
+    archive_dir = "/root/clawd/twitter-archive"
+    archive_data = scan_archive_files(archive_dir)
+
+    if not archive_data:
+        print("⚠️ 未找到任何归档文件")
+        return
+
+    # 生成 HTML
+    output_file = generate_index_html(archive_data, os.path.join(archive_dir, "index.html"))
+
+    # 统计
+    total_days = len(archive_data)
+    total_summaries = sum(len(times) for times in archive_data.values())
+
+    print(f"✅ index.html 已生成: {output_file}")
+    print(f"📊 统计:")
+    print(f"   - 归档天数: {total_days}")
+    print(f"   - 总推送数: {total_summaries}")
+
+
+if __name__ == "__main__":
+    main()
