@@ -7,298 +7,355 @@
 import os
 import glob
 import json
-from datetime import datetime
 from collections import defaultdict
 
 # 配置
 ARCHIVE_DIR = "/root/clawd/twitter-archive/"
 OUTPUT_FILE = os.path.join(ARCHIVE_DIR, "index.html")
 
-# 内联 HTML 模板
+# 内联 HTML 模板（移动端优化版）
 HTML_TEMPLATE = r'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🐦 Twitter 推文摘要归档</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Twitter 推文归档</title>
     <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #14141f;
+            --bg-card: rgba(20, 20, 31, 0.6);
+            --accent-primary: #8b5cf6;
+            --accent-secondary: #6366f1;
+            --text-primary: #f5f5f7;
+            --text-secondary: #a1a1aa;
+            --border-color: rgba(139, 92, 246, 0.1);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 20px rgba(139, 92, 246, 0.15);
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
-            padding: 20px;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 20%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 80%, rgba(99, 102, 241, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
         }
 
         .container {
-            max-width: 1200px;
+            position: relative;
+            z-index: 1;
+            max-width: 640px;
             margin: 0 auto;
+            padding: 16px;
         }
 
-        /* 头部 */
         header {
             text-align: center;
-            padding: 40px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 20px;
-            margin-bottom: 30px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 24px 16px 20px;
+            margin-bottom: 20px;
         }
 
-        header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .logo {
+            font-size: 2em;
+            margin-bottom: 8px;
+            filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.4));
+        }
+
+        h1 {
+            font-size: 1.5em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 6px;
+            background: linear-gradient(135deg, #a78bfa 0%, #818cf8 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
-        header p {
-            color: #a0a0a0;
-            font-size: 1.1em;
+        .subtitle {
+            font-size: 0.875em;
+            color: var(--text-secondary);
+            font-weight: 400;
         }
 
-        /* 统计信息 */
         .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            padding: 0 0 8px 0;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+
+        .stats::-webkit-scrollbar {
+            display: none;
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 20px;
-            border-radius: 15px;
+            flex: 0 0 auto;
+            min-width: 110px;
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px 12px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            box-shadow: var(--shadow-sm);
         }
 
         .stat-card .number {
-            font-size: 2.5em;
-            font-weight: bold;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-size: 1.75em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a78bfa 0%, #818cf8 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            line-height: 1.2;
+            margin-bottom: 4px;
         }
 
         .stat-card .label {
-            color: #a0a0a0;
-            margin-top: 5px;
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            font-weight: 500;
         }
 
-        /* 搜索框 */
         .search-box {
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 1.1em;
+            pointer-events: none;
         }
 
         .search-box input {
             width: 100%;
-            padding: 15px 20px;
-            font-size: 1em;
-            border: 2px solid rgba(102, 126, 234, 0.3);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.05);
-            color: #e0e0e0;
-            transition: all 0.3s ease;
+            padding: 12px 16px 12px 40px;
+            font-size: 0.9375em;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            color: var(--text-primary);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
         }
 
         .search-box input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1), var(--shadow-glow);
         }
 
         .search-box input::placeholder {
-            color: #666;
+            color: var(--text-secondary);
+            opacity: 0.6;
         }
 
-        /* 日期卡片 */
         .date-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            margin-bottom: 20px;
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 12px;
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .date-card:hover {
-            border-color: rgba(102, 126, 234, 0.5);
+        .date-card.active {
+            border-color: rgba(139, 92, 246, 0.3);
+            box-shadow: var(--shadow-glow), var(--shadow-md);
         }
 
         .date-header {
-            padding: 20px;
+            padding: 16px;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(255, 255, 255, 0.03);
-            transition: background 0.3s ease;
+            user-select: none;
+            -webkit-user-select: none;
+            min-height: 60px;
         }
 
-        .date-header:hover {
-            background: rgba(102, 126, 234, 0.1);
+        .date-info {
+            flex: 1;
         }
 
         .date-title {
-            font-size: 1.3em;
+            font-size: 1.0625em;
             font-weight: 600;
+            margin-bottom: 2px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .date-title .weekday {
-            color: #667eea;
-            margin-left: 10px;
-            font-size: 0.9em;
+        .weekday {
+            font-size: 0.8125em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .date-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .date-count {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: #a78bfa;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.8125em;
+            font-weight: 600;
         }
 
         .arrow {
-            transition: transform 0.3s ease;
-            font-size: 1.2em;
-            color: #667eea;
+            font-size: 0.875em;
+            color: var(--accent-primary);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .date-card.active .arrow {
             transform: rotate(180deg);
         }
 
-        /* 时间链接 */
         .time-links {
             max-height: 0;
             overflow: hidden;
-            transition: max-height 0.3s ease;
+            transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .date-card.active .time-links {
-            max-height: 300px;
+            max-height: 400px;
         }
 
         .time-links-inner {
-            padding: 20px;
+            padding: 0 16px 16px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
         }
 
         .time-link {
-            display: block;
-            padding: 15px;
-            background: rgba(102, 126, 234, 0.1);
-            border: 2px solid rgba(102, 126, 234, 0.3);
-            border-radius: 10px;
-            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 14px 8px;
+            background: var(--bg-secondary);
+            border: 1px solid rgba(139, 92, 246, 0.15);
+            border-radius: 12px;
             text-decoration: none;
-            color: #e0e0e0;
-            transition: all 0.3s ease;
+            color: var(--text-primary);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            min-height: 68px;
         }
 
         .time-link::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.3), transparent);
-            transition: left 0.5s ease;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .time-link:hover::before {
-            left: 100%;
+        .time-link:active {
+            transform: scale(0.97);
         }
 
-        .time-link:hover {
-            background: rgba(102, 126, 234, 0.2);
-            border-color: #667eea;
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        .time-link:active::before {
+            opacity: 1;
         }
 
         .time-emoji {
-            font-size: 1.5em;
-            display: block;
-            margin-bottom: 5px;
+            font-size: 1.75em;
+            line-height: 1;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
         }
 
         .time-text {
+            font-size: 0.875em;
             font-weight: 600;
-            font-size: 1.1em;
+            letter-spacing: -0.01em;
         }
 
-        /* 空状态 */
+        .time-label {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            color: #666;
+            color: var(--text-secondary);
         }
 
         .empty-state .icon {
-            font-size: 4em;
-            margin-bottom: 20px;
+            font-size: 3.5em;
+            margin-bottom: 16px;
+            opacity: 0.4;
         }
 
-        /* 页脚 */
-        footer {
-            text-align: center;
-            padding: 40px 20px;
-            color: #666;
-            margin-top: 50px;
+        .empty-state h3 {
+            font-size: 1.125em;
+            margin-bottom: 6px;
+            color: var(--text-primary);
         }
 
-        footer a {
-            color: #667eea;
-            text-decoration: none;
+        .empty-state p {
+            font-size: 0.9375em;
+            opacity: 0.7;
         }
 
-        footer a:hover {
-            text-decoration: underline;
-        }
-
-        /* 响应式设计 */
-        @media (max-width: 768px) {
-            header h1 {
-                font-size: 2em;
-            }
-
-            .stats {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .time-links-inner {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        /* 加载动画 */
         .loading {
             display: none;
             text-align: center;
-            padding: 40px;
+            padding: 40px 20px;
         }
 
         .loading.active {
@@ -306,26 +363,60 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         }
 
         .spinner {
-            border: 3px solid rgba(102, 126, 234, 0.2);
-            border-top: 3px solid #667eea;
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(139, 92, 246, 0.2);
+            border-top-color: var(--accent-primary);
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .loading p {
+            font-size: 0.875em;
+            color: var(--text-secondary);
+        }
+
+        footer {
+            text-align: center;
+            padding: 32px 16px 24px;
+            color: var(--text-secondary);
+            font-size: 0.8125em;
+            margin-top: 24px;
+        }
+
+        footer a {
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        footer p + p {
+            margin-top: 8px;
+            opacity: 0.7;
+        }
+
+        #date-list {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        @supports (-webkit-touch-callout: none) {
+            body {
+                padding-bottom: env(safe-area-inset-bottom);
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🐦 Twitter 推文摘要归档</h1>
-            <p>每日精选推文，自动整理归档</p>
+            <div class="logo">🐦</div>
+            <h1>Twitter 推文归档</h1>
+            <p class="subtitle">每日精选推文，自动整理</p>
         </header>
 
         <div class="stats">
@@ -335,34 +426,35 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             </div>
             <div class="stat-card">
                 <div class="number" id="total-summaries">0</div>
-                <div class="label">📝 总推送数</div>
+                <div class="label">📝 总推送</div>
             </div>
             <div class="stat-card">
                 <div class="number" id="latest-date">--</div>
-                <div class="label">🕐 最新更新</div>
+                <div class="label">🕐 最新</div>
             </div>
         </div>
 
         <div class="search-box">
-            <input type="text" id="search-input" placeholder="🔍 搜索日期... (例如: 2026-02-16)">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="搜索日期 (如: 02-16)">
         </div>
 
         <div class="loading active">
             <div class="spinner"></div>
-            <p style="margin-top: 20px; color: #666;">加载中...</p>
+            <p>加载中...</p>
         </div>
 
         <div id="date-list"></div>
 
         <div class="empty-state" id="empty-state" style="display: none;">
             <div class="icon">📭</div>
-            <h3>暂无归档数据</h3>
-            <p>等待第一次推送...</p>
+            <h3>暂无归档</h3>
+            <p>等待第一次推送</p>
         </div>
 
         <footer>
-            <p>自动化由 <a href="https://github.com/fengzhao2021/twitter-archive" target="_blank">GitHub Actions</a> 驱动</p>
-            <p style="margin-top: 10px; font-size: 0.9em;">每6小时自动更新 | 数据来源: Twitter</p>
+            <p>由 <a href="https://github.com/fengzhao2021/twitter-archive">GitHub Pages</a> 驱动</p>
+            <p>每6小时自动更新</p>
         </footer>
     </div>
 
@@ -374,9 +466,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             '18-00': { emoji: '🌆', label: '傍晚' }
         };
 
-        const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
-        // 数据由服务器动态生成
+        // 数据（由服务器生成）
         const ARCHIVE_DATA = {};
 
         function initPage() {
@@ -393,7 +485,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 }
 
                 updateStats();
-
                 const sortedDates = Object.keys(ARCHIVE_DATA).sort().reverse();
 
                 sortedDates.forEach(date => {
@@ -405,7 +496,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 if (firstCard) {
                     firstCard.classList.add('active');
                 }
-            }, 500);
+            }, 300);
         }
 
         function createDateCard(date, times) {
@@ -419,12 +510,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             const header = document.createElement('div');
             header.className = 'date-header';
             header.innerHTML = `
-                <div class="date-title">
-                    📅 ${date}
-                    <span class="weekday">${weekday}</span>
+                <div class="date-info">
+                    <div class="date-title">📅 ${date}</div>
+                    <div class="weekday">周${weekday}</div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 15px;">
-                    <span class="date-count">${times.length} 篇</span>
+                <div class="date-meta">
+                    <span class="date-count">${times.length}篇</span>
                     <span class="arrow">▼</span>
                 </div>
             `;
@@ -445,7 +536,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             });
 
             timeLinks.appendChild(timeLinksInner);
-
             card.appendChild(header);
             card.appendChild(timeLinks);
 
@@ -459,7 +549,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             link.href = `TWITTER_SUMMARY_${date}_${time}.html`;
             link.innerHTML = `
                 <span class="time-emoji">${slot.emoji}</span>
-                <span class="time-text">${time.replace('-', ':')} ${slot.label}</span>
+                <span class="time-text">${time.replace('-', ':')}</span>
+                <span class="time-label">${slot.label}</span>
             `;
             return link;
         }
@@ -492,20 +583,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
 
 def scan_archive_files():
-    """扫描归档目录，获取所有文件"""
+    """扫描归档目录"""
     pattern = os.path.join(ARCHIVE_DIR, "TWITTER_SUMMARY_*.html")
     files = glob.glob(pattern)
-    # 排除 index.html
     files = [f for f in files if "index.html" not in f]
     return files
 
 
 def parse_filename(filename):
-    """
-    解析文件名，提取日期和时间
-    输入: TWITTER_SUMMARY_2026-02-16_06-00.html
-    输出: ('2026-02-16', '06-00')
-    """
+    """解析文件名"""
     basename = os.path.basename(filename)
     parts = basename.replace("TWITTER_SUMMARY_", "").replace(".html", "")
     
@@ -513,12 +599,11 @@ def parse_filename(filename):
         date, time = parts.split("_", 1)
         return (date, time)
     else:
-        # 旧格式（没有时间）
         return (parts, "00-00")
 
 
 def build_archive_data():
-    """构建归档数据结构"""
+    """构建归档数据"""
     files = scan_archive_files()
     archive_data = defaultdict(list)
 
@@ -526,7 +611,6 @@ def build_archive_data():
         date, time = parse_filename(filepath)
         archive_data[date].append(time)
 
-    # 对每天的时间排序
     for date in archive_data:
         archive_data[date].sort()
 
@@ -535,33 +619,21 @@ def build_archive_data():
 
 def generate_index_html():
     """生成 index.html"""
-    # 获取归档数据
     archive_data = build_archive_data()
-
-    # 转换为 JavaScript 对象字符串
     archive_data_js = json.dumps(archive_data, ensure_ascii=False, indent=12)
+    
+    html_content = HTML_TEMPLATE.replace("const ARCHIVE_DATA = {};", f"const ARCHIVE_DATA = {archive_data_js};")
 
-    # 替换数据占位符
-    html_content = HTML_TEMPLATE.replace(
-        "const ARCHIVE_DATA = {};",
-        f"const ARCHIVE_DATA = {archive_data_js};"
-    )
-
-    # 写入文件
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write(html_content)
 
     print(f"✅ index.html 已生成: {OUTPUT_FILE}")
-    print(f"📊 统计:")
-    print(f"   - 归档天数: {len(archive_data)}")
-    print(f"   - 总推送数: {sum(len(times) for times in archive_data.values())}")
-
-    return OUTPUT_FILE
+    print(f"📊 归档天数: {len(archive_data)}")
+    print(f"📊 总推送数: {sum(len(times) for times in archive_data.values())}")
 
 
 def main():
-    """主函数"""
-    print("🚀 开始生成 index.html...")
+    print("🚀 生成 index.html...")
     generate_index_html()
 
 
