@@ -39,7 +39,6 @@
             -moz-osx-font-smoothing: grayscale;
         }
 
-        /* 背景装饰 */
         body::before {
             content: '';
             position: fixed;
@@ -61,7 +60,6 @@
             padding: 16px;
         }
 
-        /* 头部 */
         header {
             text-align: center;
             padding: 24px 16px 20px;
@@ -91,7 +89,6 @@
             font-weight: 400;
         }
 
-        /* 统计卡片 - 横向滚动 */
         .stats {
             display: flex;
             gap: 12px;
@@ -135,7 +132,6 @@
             font-weight: 500;
         }
 
-        /* 搜索框 */
         .search-box {
             margin-bottom: 20px;
             position: relative;
@@ -175,7 +171,6 @@
             opacity: 0.6;
         }
 
-        /* 日期卡片 */
         .date-card {
             background: var(--bg-card);
             backdrop-filter: blur(20px);
@@ -248,7 +243,6 @@
             transform: rotate(180deg);
         }
 
-        /* 时间链接容器 */
         .time-links {
             max-height: 0;
             overflow: hidden;
@@ -319,7 +313,6 @@
             font-weight: 500;
         }
 
-        /* 空状态 */
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -343,7 +336,6 @@
             opacity: 0.7;
         }
 
-        /* 加载动画 */
         .loading {
             display: none;
             text-align: center;
@@ -373,7 +365,6 @@
             color: var(--text-secondary);
         }
 
-        /* 页脚 */
         footer {
             text-align: center;
             padding: 32px 16px 24px;
@@ -393,12 +384,10 @@
             opacity: 0.7;
         }
 
-        /* 优化滚动 */
         #date-list {
             -webkit-overflow-scrolling: touch;
         }
 
-        /* iOS 优化 */
         @supports (-webkit-touch-callout: none) {
             body {
                 padding-bottom: env(safe-area-inset-bottom);
@@ -408,14 +397,12 @@
 </head>
 <body>
     <div class="container">
-        <!-- 头部 -->
         <header>
             <div class="logo">🐦</div>
             <h1>Twitter 推文归档</h1>
             <p class="subtitle">每日精选推文，自动整理</p>
         </header>
 
-        <!-- 统计信息 -->
         <div class="stats">
             <div class="stat-card">
                 <div class="number" id="total-days">0</div>
@@ -431,37 +418,31 @@
             </div>
         </div>
 
-        <!-- 搜索框 -->
         <div class="search-box">
             <span class="search-icon">🔍</span>
             <input type="text" id="search-input" placeholder="搜索日期 (如: 02-16)">
         </div>
 
-        <!-- 加载动画 -->
         <div class="loading active">
             <div class="spinner"></div>
             <p>加载中...</p>
         </div>
 
-        <!-- 日期列表 -->
         <div id="date-list"></div>
 
-        <!-- 空状态 -->
         <div class="empty-state" id="empty-state" style="display: none;">
             <div class="icon">📭</div>
             <h3>暂无归档</h3>
             <p>等待第一次推送</p>
         </div>
 
-        <!-- 页脚 -->
         <footer>
             <p>由 <a href="https://github.com/fengzhao2021/twitter-archive">GitHub Pages</a> 驱动</p>
-            <p>每6小时自动更新</p>
+            <p>每 6 小时自动更新：02:00 | 08:00 | 14:00 | 20:00</p>
         </footer>
     </div>
 
     <script>
-        // 时间段配置
         const TIME_SLOTS = {
             '00-00': { emoji: '🌙', label: '凌晨' },
             '06-00': { emoji: '🌅', label: '早晨' },
@@ -469,21 +450,54 @@
             '18-00': { emoji: '🌆', label: '傍晚' }
         };
 
-        // 星期映射
         const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
         // 数据（由服务器生成）
         const ARCHIVE_DATA = {
-            '2026-02-16': ['00-00', '06-00', '12-00', '18-00'],
-            '2026-02-15': ['12-00'],
-            '2026-02-14': ['00-00', '06-00', '12-00', '18-00'],
-            '2026-02-13': ['06-00', '12-00', '18-00'],
-            '2026-02-12': ['00-00', '06-00', '12-00', '18-00'],
-            '2026-02-11': ['00-00', '06-00', '12-00'],
-            '2026-02-10': ['00-00', '06-00', '12-00', '18-00']
-        };
+            "2026-02-08": [
+                        "12-00"
+            ],
+            "2026-02-10": [
+                        "12-00"
+            ],
+            "2026-02-03": [
+                        "12-00"
+            ],
+            "2026-02-04": [
+                        "12-00"
+            ],
+            "2026-02-15": [
+                        "12-00"
+            ],
+            "2026-02-06": [
+                        "12-00"
+            ],
+            "2026-02-12": [
+                        "12-00"
+            ],
+            "2026-02-09": [
+                        "12-00"
+            ],
+            "2026-02-13": [
+                        "12-00"
+            ],
+            "2026-02-05": [
+                        "12-00"
+            ],
+            "2026-02-11": [
+                        "12-00"
+            ],
+            "2026-02-14": [
+                        "12-00"
+            ],
+            "2026-02-16": [
+                        "12-00"
+            ],
+            "2026-02-07": [
+                        "12-00"
+            ]
+};
 
-        // 初始化
         function initPage() {
             const dateList = document.getElementById('date-list');
             const loading = document.querySelector('.loading');
@@ -505,7 +519,6 @@
                     dateList.appendChild(card);
                 });
 
-                // 默认展开第一个
                 const firstCard = dateList.querySelector('.date-card');
                 if (firstCard) {
                     firstCard.classList.add('active');
@@ -513,7 +526,6 @@
             }, 300);
         }
 
-        // 创建日期卡片
         function createDateCard(date, times) {
             const card = document.createElement('div');
             card.className = 'date-card';
@@ -526,9 +538,7 @@
             header.className = 'date-header';
             header.innerHTML = `
                 <div class="date-info">
-                    <div class="date-title">
-                        📅 ${date}
-                    </div>
+                    <div class="date-title">📅 ${date}</div>
                     <div class="weekday">周${weekday}</div>
                 </div>
                 <div class="date-meta">
@@ -559,7 +569,6 @@
             return card;
         }
 
-        // 创建时间链接
         function createTimeLink(date, time) {
             const slot = TIME_SLOTS[time] || { emoji: '🕐', label: time };
             const link = document.createElement('a');
@@ -573,7 +582,6 @@
             return link;
         }
 
-        // 更新统计
         function updateStats() {
             const dates = Object.keys(ARCHIVE_DATA);
             const totalDays = dates.length;
@@ -585,7 +593,6 @@
             document.getElementById('latest-date').textContent = latestDate.substring(5);
         }
 
-        // 搜索
         document.getElementById('search-input').addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase();
             const cards = document.querySelectorAll('.date-card');
@@ -596,7 +603,6 @@
             });
         });
 
-        // 启动
         document.addEventListener('DOMContentLoaded', initPage);
     </script>
 </body>
